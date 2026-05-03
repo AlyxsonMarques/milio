@@ -31,10 +31,7 @@ export async function scheduleSiloReminder(
         body: `How is ${siloName} growing? Tap to log the latest value.`,
         data: { siloId },
       },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: triggerDate,
-      },
+      trigger: triggerDate,
     });
     return id;
   } catch {

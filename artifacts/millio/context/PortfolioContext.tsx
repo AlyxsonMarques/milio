@@ -90,27 +90,35 @@ function computeEta(
   goal: number
 ): EtaResult {
   const netWorth = silos.reduce((s, silo) => s + silo.currentValue, 0);
-  if (netWorth <= 0) return { months: -1, arrivalDate: null };
   if (netWorth >= goal) return { months: 0, arrivalDate: new Date().toISOString() };
 
-  // Total monthly fuel = global contribution + sum of all per-silo recurring contributions
+  // Per-silo recurring contributions take precedence — they do NOT stack with the global amount.
+  // The global monthlyContribution (set at onboarding) is a fallback for when no per-silo
+  // recurring amounts are configured.
   const siloRecurring = silos.reduce((s, silo) => s + (silo.recurringContribution ?? 0), 0);
-  const totalMonthly = monthlyContribution + siloRecurring;
+  const totalMonthly = siloRecurring > 0 ? siloRecurring : monthlyContribution;
 
-  const siloValues = silos.map((s) => ({
-    value: s.currentValue,
-    monthlyRate: s.yearlyReturnRate / 100 / 12,
-  }));
-  let contributionPool = 0;
+  // Nothing to project if no current value and no contributions
+  if (netWorth <= 0 && totalMonthly <= 0) return { months: -1, arrivalDate: null };
+
+  // Blended monthly interest rate, weighted by each silo's current value.
+  // Falls back to equal weighting if netWorth is 0 (pure contribution scenario).
+  const blendedMonthlyRate = silos.reduce((sum, silo) => {
+    const weight =
+      netWorth > 0
+        ? silo.currentValue / netWorth
+        : 1 / Math.max(silos.length, 1);
+    return sum + weight * (silo.yearlyReturnRate / 100 / 12);
+  }, 0);
+
+  // Simulate month by month: contributions ARE added to the compounding base each period,
+  // so earlier contributions earn interest in subsequent months (standard annuity model).
+  let total = netWorth;
   const MAX_MONTHS = 600;
 
   for (let month = 1; month <= MAX_MONTHS; month++) {
-    for (const sv of siloValues) {
-      sv.value *= 1 + sv.monthlyRate;
-    }
-    contributionPool += totalMonthly;
-    const current = siloValues.reduce((s, sv) => s + sv.value, 0) + contributionPool;
-    if (current >= goal) {
+    total = total * (1 + blendedMonthlyRate) + totalMonthly;
+    if (total >= goal) {
       const arrival = new Date();
       arrival.setMonth(arrival.getMonth() + month);
       return { months: month, arrivalDate: arrival.toISOString() };
@@ -318,9 +326,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const netWorth = data.silos.reduce((s, silo) => s + silo.currentValue, 0);
   const percentToGoal = data.goal > 0 ? Math.min((netWorth / data.goal) * 100, 100) : 0;
   const remainingToGoal = Math.max(data.goal - netWorth, 0);
+  const siloRecurringTotal = data.silos.reduce((s, silo) => s + (silo.recurringContribution ?? 0), 0);
+  // Per-silo recurring takes precedence over global — they don't stack
   const totalMonthlyContribution =
-    data.monthlyContribution +
-    data.silos.reduce((s, silo) => s + (silo.recurringContribution ?? 0), 0);
+    siloRecurringTotal > 0 ? siloRecurringTotal : data.monthlyContribution;
   const eta = computeEta(data.silos, data.monthlyContribution, data.goal);
 
   return (
