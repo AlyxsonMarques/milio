@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AddSiloSheet } from "@/components/AddSiloSheet";
+import { ContributeSheet } from "@/components/ContributeSheet";
 import { SiloCard } from "@/components/SiloCard";
 import { UpdateValueSheet } from "@/components/UpdateValueSheet";
 import { Silo, usePortfolio } from "@/context/PortfolioContext";
@@ -13,11 +14,12 @@ import { formatCurrency } from "@/utils/format";
 export default function SilosScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { silos, addSilo, updateSilo, updateSiloValue, deleteSilo, netWorth } = usePortfolio();
+  const { silos, addSilo, updateSilo, contributeSilo, deleteSilo, netWorth } = usePortfolio();
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingSilo, setEditingSilo] = useState<Silo | undefined>(undefined);
-  const [updatingSilo, setUpdatingSilo] = useState<Silo | null>(null);
+  const [contributingSilo, setContributingSilo] = useState<Silo | null>(null);
+  const [settingValueSilo, setSettingValueSilo] = useState<Silo | null>(null);
 
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -33,13 +35,21 @@ export default function SilosScreen() {
     );
   }
 
-  function handleSave(siloData: Omit<Silo, "id" | "createdAt">) {
-    if (editingSilo) {
-      updateSilo(editingSilo.id, siloData);
+  function handleSave(siloData: Omit<Silo, "id" | "createdAt">, siloId?: string) {
+    if (siloId) {
+      updateSilo(siloId, siloData);
     } else {
       addSilo(siloData);
     }
     setEditingSilo(undefined);
+  }
+
+  function handleSetValue(siloId: string, newValue: number) {
+    // Setting exact value counts as a contribution (delta = newValue - currentValue)
+    const silo = silos.find((s) => s.id === siloId);
+    if (!silo) return;
+    const delta = newValue - silo.currentValue;
+    contributeSilo(siloId, delta);
   }
 
   return (
@@ -74,15 +84,13 @@ export default function SilosScreen() {
       <FlatList
         data={silos}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={[
-          styles.list,
-          { paddingBottom: bottomPad + 100 },
-        ]}
+        contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 100 }]}
         renderItem={({ item }) => (
           <SiloCard
             silo={item}
-            onUpdate={() => setUpdatingSilo(item)}
+            onContribute={() => setContributingSilo(item)}
             onEdit={() => { setEditingSilo(item); setShowAdd(true); }}
+            onSetValue={() => setSettingValueSilo(item)}
             onDelete={() => handleDelete(item)}
           />
         )}
@@ -104,11 +112,18 @@ export default function SilosScreen() {
         onClose={() => { setShowAdd(false); setEditingSilo(undefined); }}
       />
 
+      <ContributeSheet
+        visible={!!contributingSilo}
+        silo={contributingSilo}
+        onSave={(amount) => contributingSilo && contributeSilo(contributingSilo.id, amount)}
+        onClose={() => setContributingSilo(null)}
+      />
+
       <UpdateValueSheet
-        visible={!!updatingSilo}
-        silo={updatingSilo}
-        onSave={(val) => updatingSilo && updateSiloValue(updatingSilo.id, val)}
-        onClose={() => setUpdatingSilo(null)}
+        visible={!!settingValueSilo}
+        silo={settingValueSilo}
+        onSave={(val) => settingValueSilo && handleSetValue(settingValueSilo.id, val)}
+        onClose={() => setSettingValueSilo(null)}
       />
     </View>
   );

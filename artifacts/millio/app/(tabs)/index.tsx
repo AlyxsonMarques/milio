@@ -12,10 +12,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CountdownHero } from "@/components/CountdownHero";
+import { ContributeSheet } from "@/components/ContributeSheet";
 import { HypeToast } from "@/components/HypeToast";
 import { MilestoneModal } from "@/components/MilestoneModal";
 import { SiloCard } from "@/components/SiloCard";
-import { UpdateValueSheet } from "@/components/UpdateValueSheet";
 import { Silo, usePortfolio } from "@/context/PortfolioContext";
 import { useColors } from "@/hooks/useColors";
 import { formatDate, formatMonthsAway } from "@/utils/format";
@@ -34,12 +34,12 @@ export default function DashboardScreen() {
     monthlyContribution,
     pendingMilestone,
     pendingHype,
-    updateSiloValue,
+    contributeSilo,
     dismissMilestone,
     dismissHype,
   } = usePortfolio();
 
-  const [updatingSilo, setUpdatingSilo] = useState<Silo | null>(null);
+  const [contributingSilo, setContributingSilo] = useState<Silo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -96,14 +96,16 @@ export default function DashboardScreen() {
               </Text>
             </>
           ) : eta.months === 0 ? (
-            <Text style={[styles.etaDate, { color: colors.accent }]}>You've reached your goal!</Text>
+            <Text style={[styles.etaDate, { color: colors.accent }]}>
+              You've reached your goal!
+            </Text>
           ) : netWorth <= 0 ? (
             <Text style={[styles.etaNA, { color: colors.mutedForeground }]}>
               Add a silo value to see your ETA
             </Text>
           ) : (
             <Text style={[styles.etaNA, { color: colors.mutedForeground }]}>
-              Add more silos or increase your returns to reach the goal within 50 years
+              Add more or increase your returns to reach the goal within 50 years
             </Text>
           )}
           {monthlyContribution > 0 && (
@@ -116,10 +118,7 @@ export default function DashboardScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Your silos</Text>
-            <Pressable
-              onPress={() => router.push("/(tabs)/silos")}
-              hitSlop={12}
-            >
+            <Pressable onPress={() => router.push("/(tabs)/silos")} hitSlop={12}>
               <Text style={[styles.seeAll, { color: colors.primary }]}>Manage</Text>
             </Pressable>
           </View>
@@ -144,7 +143,7 @@ export default function DashboardScreen() {
                   key={silo.id}
                   silo={silo}
                   compact
-                  onUpdate={() => setUpdatingSilo(silo)}
+                  onContribute={() => setContributingSilo(silo)}
                 />
               ))}
               {silos.length > 5 && (
@@ -163,14 +162,13 @@ export default function DashboardScreen() {
       </ScrollView>
 
       <HypeToast message={pendingHype} onDismiss={dismissHype} />
-
       <MilestoneModal milestone={pendingMilestone} onDismiss={dismissMilestone} />
 
-      <UpdateValueSheet
-        visible={!!updatingSilo}
-        silo={updatingSilo}
-        onSave={(val) => updatingSilo && updateSiloValue(updatingSilo.id, val)}
-        onClose={() => setUpdatingSilo(null)}
+      <ContributeSheet
+        visible={!!contributingSilo}
+        silo={contributingSilo}
+        onSave={(amount) => contributingSilo && contributeSilo(contributingSilo.id, amount)}
+        onClose={() => setContributingSilo(null)}
       />
     </View>
   );

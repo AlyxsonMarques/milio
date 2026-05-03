@@ -2,15 +2,14 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useState } from "react";
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { Silo } from "@/context/PortfolioContext";
@@ -49,16 +48,14 @@ export function UpdateValueSheet({ visible, silo, onSave, onClose }: Props) {
 
   if (!silo) return null;
 
-  const delta = parseFloat(valueStr.replace(/,/g, "")) - silo.currentValue;
-  const showDelta = !isNaN(delta) && valueStr !== "" && delta !== 0;
+  const parsed = parseFloat(valueStr.replace(/,/g, ""));
+  const delta = !isNaN(parsed) ? parsed - silo.currentValue : 0;
+  const showDelta = !isNaN(parsed) && valueStr !== "" && delta !== 0;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.sheetWrapper}
-      >
+      <KeyboardAvoidingView behavior="padding" style={styles.avoidingView}>
         <View
           style={[
             styles.sheet,
@@ -79,15 +76,20 @@ export function UpdateValueSheet({ visible, silo, onSave, onClose }: Props) {
             </Pressable>
           </View>
 
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>New value ($)</Text>
+          <Text style={[styles.label, { color: colors.mutedForeground }]}>New total value ($)</Text>
           <TextInput
-            style={[styles.input, { backgroundColor: colors.input, color: colors.foreground, borderColor: colors.border }]}
+            style={[
+              styles.input,
+              { backgroundColor: colors.input, color: colors.foreground, borderColor: colors.border },
+            ]}
             placeholder="0"
             placeholderTextColor={colors.mutedForeground}
             value={valueStr}
-            onChangeText={(t) => { setValueStr(t); setError(""); }}
+            onChangeText={(t) => { setValueStr(t.replace(/[^0-9.]/g, "")); setError(""); }}
             keyboardType="decimal-pad"
             autoFocus
+            returnKeyType="done"
+            onSubmitEditing={handleSave}
           />
 
           {showDelta && (
@@ -111,7 +113,7 @@ export function UpdateValueSheet({ visible, silo, onSave, onClose }: Props) {
             ]}
           >
             <Text style={[styles.saveBtnText, { color: colors.primaryForeground }]}>
-              Update silo
+              Set value
             </Text>
           </Pressable>
         </View>
@@ -122,7 +124,7 @@ export function UpdateValueSheet({ visible, silo, onSave, onClose }: Props) {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1 },
-  sheetWrapper: { justifyContent: "flex-end" },
+  avoidingView: { justifyContent: "flex-end" },
   sheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -153,7 +155,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   label: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: "Inter_500Medium",
     letterSpacing: 0.5,
     textTransform: "uppercase",
@@ -164,7 +166,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: "Inter_600SemiBold",
   },
   delta: {
@@ -182,7 +184,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     alignItems: "center",
     marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   saveBtnText: {
     fontSize: 16,

@@ -23,10 +23,10 @@ export default function OnboardingSilos() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  function handleSave(siloData: Omit<Silo, "id" | "createdAt">) {
-    if (editingSilo) {
+  function handleSave(siloData: Omit<Silo, "id" | "createdAt">, siloId?: string) {
+    if (siloId) {
       setLocalSilos((prev) =>
-        prev.map((s) => (s.id === editingSilo.id ? { ...s, ...siloData } : s))
+        prev.map((s) => (s.id === siloId ? { ...s, ...siloData } : s))
       );
     } else {
       setLocalSilos((prev) => [
@@ -49,6 +49,9 @@ export default function OnboardingSilos() {
         type: s.type,
         currentValue: s.currentValue,
         yearlyReturnRate: s.yearlyReturnRate,
+        recurringContribution: s.recurringContribution,
+        notificationDay: s.notificationDay,
+        notificationId: s.notificationId,
       });
     }
     router.push("/onboarding/contribution");

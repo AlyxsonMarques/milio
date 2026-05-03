@@ -16,6 +16,9 @@ export interface Silo {
   currentValue: number;
   yearlyReturnRate: number;
   createdAt: string;
+  recurringContribution?: number;
+  notificationDay?: number;
+  notificationId?: string;
 }
 
 export interface SiloUpdate {
@@ -67,9 +70,9 @@ interface PortfolioContextValue extends PortfolioData {
   eta: EtaResult;
   pendingMilestone: PendingMilestone | null;
   pendingHype: string | null;
-  addSilo: (silo: Omit<Silo, "id" | "createdAt">) => void;
+  addSilo: (silo: Omit<Silo, "id" | "createdAt">) => string;
   updateSilo: (id: string, updates: Partial<Omit<Silo, "id" | "createdAt">>) => void;
-  updateSiloValue: (id: string, newValue: number) => void;
+  contributeSilo: (id: string, delta: number) => void;
   deleteSilo: (id: string) => void;
   setMonthlyContribution: (amount: number) => void;
   setGoal: (amount: number) => void;
@@ -78,7 +81,7 @@ interface PortfolioContextValue extends PortfolioData {
   dismissHype: () => void;
 }
 
-const STORAGE_KEY = "millio_portfolio_v1";
+const STORAGE_KEY = "millio_portfolio_v2";
 
 function computeEta(
   silos: Silo[],
@@ -111,13 +114,16 @@ function computeEta(
   return { months: -1, arrivalDate: null };
 }
 
-function getHypeMessage(
-  delta: number,
-  eta: EtaResult,
-  netWorth: number
-): string {
+function abbrev(amount: number): string {
+  const abs = Math.abs(amount);
+  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(abs / 1_000).toFixed(1)}K`;
+  return `$${abs.toFixed(0)}`;
+}
+
+function getHypeMessage(delta: number, eta: EtaResult, netWorth: number): string {
   const options: string[] = [
-    `+${formatDelta(delta)} added to the harvest!`,
+    `${abbrev(delta)} added to the harvest!`,
     `The grain keeps piling up. Don't stop!`,
     `Best update yet — the silo is full of momentum.`,
   ];
@@ -130,13 +136,6 @@ function getHypeMessage(
     options.push("Over halfway there. The million can feel you coming.");
   }
   return options[Math.floor(Math.random() * options.length)];
-}
-
-function formatDelta(amount: number): string {
-  const abs = Math.abs(amount);
-  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `$${(abs / 1_000).toFixed(1)}K`;
-  return `$${abs.toFixed(0)}`;
 }
 
 const DEFAULT_DATA: PortfolioData = {
@@ -176,26 +175,26 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }, []);
 
-  const checkMilestones = useCallback(
-    (nextData: PortfolioData, newNetWorth: number) => {
-      const pct = (newNetWorth / nextData.goal) * 100;
-      for (const m of MILESTONES) {
-        if (!nextData.triggeredMilestones.includes(m.id) && pct >= m.percentage) {
-          return m;
-        }
+  const checkMilestones = useCallback((nextData: PortfolioData, newNetWorth: number) => {
+    const pct = (newNetWorth / nextData.goal) * 100;
+    for (const m of MILESTONES) {
+      if (!nextData.triggeredMilestones.includes(m.id) && pct >= m.percentage) {
+        return m;
       }
-      return null;
-    },
-    []
-  );
+    }
+    return null;
+  }, []);
 
   const mutate = useCallback(
-    (updater: (prev: PortfolioData) => PortfolioData, opts?: { checkHype?: boolean; prevValue?: number; siloId?: string }) => {
+    (
+      updater: (prev: PortfolioData) => PortfolioData,
+      opts?: { checkHype?: boolean }
+    ) => {
       setData((prev) => {
         const next = updater(prev);
         const newNetWorth = next.silos.reduce((s, silo) => s + silo.currentValue, 0);
 
-        if (opts?.checkHype && opts.prevValue !== undefined) {
+        if (opts?.checkHype) {
           const delta = newNetWorth - prevNetWorth.current;
           if (delta > 0) {
             const eta = computeEta(next.silos, next.monthlyContribution, next.goal);
@@ -225,14 +224,16 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addSilo = useCallback(
-    (silo: Omit<Silo, "id" | "createdAt">) => {
+    (silo: Omit<Silo, "id" | "createdAt">): string => {
+      const id = generateId();
       mutate((prev) => ({
         ...prev,
         silos: [
           ...prev.silos,
-          { ...silo, id: generateId(), createdAt: new Date().toISOString() },
+          { ...silo, id, createdAt: new Date().toISOString() },
         ],
       }));
+      return id;
     },
     [mutate]
   );
@@ -247,20 +248,21 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     [mutate]
   );
 
-  const updateSiloValue = useCallback(
-    (id: string, newValue: number) => {
+  // Explicit contribution or withdrawal — always creates a transaction in history
+  const contributeSilo = useCallback(
+    (id: string, delta: number) => {
       mutate(
         (prev) => {
           const silo = prev.silos.find((s) => s.id === id);
           if (!silo) return prev;
-          const delta = newValue - silo.currentValue;
+          const newValue = Math.max(0, silo.currentValue + delta);
           const update: SiloUpdate = {
             id: generateId(),
             siloId: id,
             siloName: silo.name,
             previousValue: silo.currentValue,
             newValue,
-            delta,
+            delta: newValue - silo.currentValue,
             timestamp: new Date().toISOString(),
           };
           return {
@@ -326,7 +328,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         pendingHype,
         addSilo,
         updateSilo,
-        updateSiloValue,
+        contributeSilo,
         deleteSilo,
         setMonthlyContribution,
         setGoal,
