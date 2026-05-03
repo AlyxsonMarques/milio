@@ -31,7 +31,7 @@ export default function DashboardScreen() {
     remainingToGoal,
     eta,
     goal,
-    monthlyContribution,
+    totalMonthlyContribution,
     pendingMilestone,
     pendingHype,
     contributeSilo,
@@ -108,9 +108,9 @@ export default function DashboardScreen() {
               Add more or increase your returns to reach the goal within 50 years
             </Text>
           )}
-          {monthlyContribution > 0 && (
+          {totalMonthlyContribution > 0 && (
             <Text style={[styles.etaMeta, { color: colors.mutedForeground }]}>
-              Contributing ${monthlyContribution.toLocaleString()}/mo
+              Contributing ${totalMonthlyContribution.toLocaleString()}/mo
             </Text>
           )}
         </View>

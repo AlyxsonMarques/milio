@@ -67,6 +67,7 @@ interface PortfolioContextValue extends PortfolioData {
   netWorth: number;
   percentToGoal: number;
   remainingToGoal: number;
+  totalMonthlyContribution: number;
   eta: EtaResult;
   pendingMilestone: PendingMilestone | null;
   pendingHype: string | null;
@@ -92,6 +93,10 @@ function computeEta(
   if (netWorth <= 0) return { months: -1, arrivalDate: null };
   if (netWorth >= goal) return { months: 0, arrivalDate: new Date().toISOString() };
 
+  // Total monthly fuel = global contribution + sum of all per-silo recurring contributions
+  const siloRecurring = silos.reduce((s, silo) => s + (silo.recurringContribution ?? 0), 0);
+  const totalMonthly = monthlyContribution + siloRecurring;
+
   const siloValues = silos.map((s) => ({
     value: s.currentValue,
     monthlyRate: s.yearlyReturnRate / 100 / 12,
@@ -103,7 +108,7 @@ function computeEta(
     for (const sv of siloValues) {
       sv.value *= 1 + sv.monthlyRate;
     }
-    contributionPool += monthlyContribution;
+    contributionPool += totalMonthly;
     const current = siloValues.reduce((s, sv) => s + sv.value, 0) + contributionPool;
     if (current >= goal) {
       const arrival = new Date();
@@ -313,6 +318,9 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const netWorth = data.silos.reduce((s, silo) => s + silo.currentValue, 0);
   const percentToGoal = data.goal > 0 ? Math.min((netWorth / data.goal) * 100, 100) : 0;
   const remainingToGoal = Math.max(data.goal - netWorth, 0);
+  const totalMonthlyContribution =
+    data.monthlyContribution +
+    data.silos.reduce((s, silo) => s + (silo.recurringContribution ?? 0), 0);
   const eta = computeEta(data.silos, data.monthlyContribution, data.goal);
 
   return (
@@ -323,6 +331,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         netWorth,
         percentToGoal,
         remainingToGoal,
+        totalMonthlyContribution,
         eta,
         pendingMilestone,
         pendingHype,
