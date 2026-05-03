@@ -58,7 +58,6 @@ interface PortfolioData {
   monthlyContribution: number;
   goal: number;
   updateHistory: SiloUpdate[];
-  hasCompletedOnboarding: boolean;
   triggeredMilestones: string[];
 }
 
@@ -77,7 +76,6 @@ interface PortfolioContextValue extends PortfolioData {
   deleteSilo: (id: string) => void;
   setMonthlyContribution: (amount: number) => void;
   setGoal: (amount: number) => void;
-  completeOnboarding: () => void;
   dismissMilestone: () => void;
   dismissHype: () => void;
 }
@@ -156,7 +154,6 @@ const DEFAULT_DATA: PortfolioData = {
   monthlyContribution: 0,
   goal: 1_000_000,
   updateHistory: [],
-  hasCompletedOnboarding: false,
   triggeredMilestones: [],
 };
 
@@ -316,10 +313,6 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     [mutate]
   );
 
-  const completeOnboarding = useCallback(() => {
-    mutate((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-  }, [mutate]);
-
   const dismissMilestone = useCallback(() => setPendingMilestone(null), []);
   const dismissHype = useCallback(() => setPendingHype(null), []);
 
@@ -350,7 +343,6 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         deleteSilo,
         setMonthlyContribution,
         setGoal,
-        completeOnboarding,
         dismissMilestone,
         dismissHype,
       }}
