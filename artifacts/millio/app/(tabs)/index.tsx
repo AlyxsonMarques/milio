@@ -79,41 +79,39 @@ export default function DashboardScreen() {
           goal={goal}
         />
 
-        <View style={[styles.etaCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.etaRow}>
-            <Feather name="clock" size={16} color={colors.primary} />
-            <Text style={[styles.etaLabel, { color: colors.mutedForeground }]}>
-              At your current pace
-            </Text>
+        {silos.length > 0 && (
+          <View style={[styles.etaCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.etaRow}>
+              <Feather name="clock" size={16} color={colors.primary} />
+              <Text style={[styles.etaLabel, { color: colors.mutedForeground }]}>
+                At your current pace
+              </Text>
+            </View>
+            {etaDate && eta.months > 0 ? (
+              <>
+                <Text style={[styles.etaDate, { color: colors.foreground }]}>
+                  {formatDate(etaDate)}
+                </Text>
+                <Text style={[styles.etaAway, { color: colors.primary }]}>
+                  {formatMonthsAway(eta.months)}
+                </Text>
+              </>
+            ) : eta.months === 0 ? (
+              <Text style={[styles.etaDate, { color: colors.accent }]}>
+                You've reached your goal!
+              </Text>
+            ) : (
+              <Text style={[styles.etaNA, { color: colors.mutedForeground }]}>
+                Add a return rate or monthly contribution to see your harvest ETA
+              </Text>
+            )}
+            {totalMonthlyContribution > 0 && (
+              <Text style={[styles.etaMeta, { color: colors.mutedForeground }]}>
+                Contributing ${totalMonthlyContribution.toLocaleString()}/mo
+              </Text>
+            )}
           </View>
-          {etaDate && eta.months > 0 ? (
-            <>
-              <Text style={[styles.etaDate, { color: colors.foreground }]}>
-                {formatDate(etaDate)}
-              </Text>
-              <Text style={[styles.etaAway, { color: colors.primary }]}>
-                {formatMonthsAway(eta.months)}
-              </Text>
-            </>
-          ) : eta.months === 0 ? (
-            <Text style={[styles.etaDate, { color: colors.accent }]}>
-              You've reached your goal!
-            </Text>
-          ) : netWorth <= 0 ? (
-            <Text style={[styles.etaNA, { color: colors.mutedForeground }]}>
-              Add a silo value to see your ETA
-            </Text>
-          ) : (
-            <Text style={[styles.etaNA, { color: colors.mutedForeground }]}>
-              Add more or increase your returns to reach the goal within 50 years
-            </Text>
-          )}
-          {totalMonthlyContribution > 0 && (
-            <Text style={[styles.etaMeta, { color: colors.mutedForeground }]}>
-              Contributing ${totalMonthlyContribution.toLocaleString()}/mo
-            </Text>
-          )}
-        </View>
+        )}
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
