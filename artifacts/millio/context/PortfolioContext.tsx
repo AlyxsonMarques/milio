@@ -1,0 +1,347 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { generateId } from "@/utils/format";
+
+export interface Silo {
+  id: string;
+  name: string;
+  type: "cash" | "property" | "investment";
+  currentValue: number;
+  yearlyReturnRate: number;
+  createdAt: string;
+}
+
+export interface SiloUpdate {
+  id: string;
+  siloId: string;
+  siloName: string;
+  previousValue: number;
+  newValue: number;
+  delta: number;
+  timestamp: string;
+}
+
+export interface EtaResult {
+  months: number;
+  arrivalDate: string | null;
+}
+
+export interface PendingMilestone {
+  id: string;
+  percentage: number;
+  name: string;
+  message: string;
+}
+
+export const MILESTONES: PendingMilestone[] = [
+  { id: "m1", percentage: 1, name: "First Grain", message: "The chicken has started eating." },
+  { id: "m10", percentage: 10, name: "10% Millionaire", message: "One tenth of the way. The silo is waking up." },
+  { id: "m25", percentage: 25, name: "Quarter Harvest", message: "One quarter done. You're seriously doing this." },
+  { id: "m50", percentage: 50, name: "Halfway There", message: "HALFWAY. Your silos are half full. Don't stop now." },
+  { id: "m75", percentage: 75, name: "Almost Dangerous", message: "75% in. You can almost smell the harvest." },
+  { id: "m90", percentage: 90, name: "Final Sprint", message: "90%! Last stretch. The million is right there." },
+  { id: "m100", percentage: 100, name: "HARVEST TIME", message: "YOU DID IT. YOU ARE A MILLIONAIRE." },
+];
+
+interface PortfolioData {
+  silos: Silo[];
+  monthlyContribution: number;
+  goal: number;
+  updateHistory: SiloUpdate[];
+  hasCompletedOnboarding: boolean;
+  triggeredMilestones: string[];
+}
+
+interface PortfolioContextValue extends PortfolioData {
+  isLoading: boolean;
+  netWorth: number;
+  percentToGoal: number;
+  remainingToGoal: number;
+  eta: EtaResult;
+  pendingMilestone: PendingMilestone | null;
+  pendingHype: string | null;
+  addSilo: (silo: Omit<Silo, "id" | "createdAt">) => void;
+  updateSilo: (id: string, updates: Partial<Omit<Silo, "id" | "createdAt">>) => void;
+  updateSiloValue: (id: string, newValue: number) => void;
+  deleteSilo: (id: string) => void;
+  setMonthlyContribution: (amount: number) => void;
+  setGoal: (amount: number) => void;
+  completeOnboarding: () => void;
+  dismissMilestone: () => void;
+  dismissHype: () => void;
+}
+
+const STORAGE_KEY = "millio_portfolio_v1";
+
+function computeEta(
+  silos: Silo[],
+  monthlyContribution: number,
+  goal: number
+): EtaResult {
+  const netWorth = silos.reduce((s, silo) => s + silo.currentValue, 0);
+  if (netWorth <= 0) return { months: -1, arrivalDate: null };
+  if (netWorth >= goal) return { months: 0, arrivalDate: new Date().toISOString() };
+
+  const siloValues = silos.map((s) => ({
+    value: s.currentValue,
+    monthlyRate: s.yearlyReturnRate / 100 / 12,
+  }));
+  let contributionPool = 0;
+  const MAX_MONTHS = 600;
+
+  for (let month = 1; month <= MAX_MONTHS; month++) {
+    for (const sv of siloValues) {
+      sv.value *= 1 + sv.monthlyRate;
+    }
+    contributionPool += monthlyContribution;
+    const current = siloValues.reduce((s, sv) => s + sv.value, 0) + contributionPool;
+    if (current >= goal) {
+      const arrival = new Date();
+      arrival.setMonth(arrival.getMonth() + month);
+      return { months: month, arrivalDate: arrival.toISOString() };
+    }
+  }
+  return { months: -1, arrivalDate: null };
+}
+
+function getHypeMessage(
+  delta: number,
+  eta: EtaResult,
+  netWorth: number
+): string {
+  const options: string[] = [
+    `+${formatDelta(delta)} added to the harvest!`,
+    `The grain keeps piling up. Don't stop!`,
+    `Best update yet — the silo is full of momentum.`,
+  ];
+  if (eta.arrivalDate && eta.months > 0) {
+    const d = new Date(eta.arrivalDate);
+    const dateStr = d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    options.push(`At this pace, harvest is in ${dateStr}.`);
+  }
+  if (netWorth >= 500_000) {
+    options.push("Over halfway there. The million can feel you coming.");
+  }
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+function formatDelta(amount: number): string {
+  const abs = Math.abs(amount);
+  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(abs / 1_000).toFixed(1)}K`;
+  return `$${abs.toFixed(0)}`;
+}
+
+const DEFAULT_DATA: PortfolioData = {
+  silos: [],
+  monthlyContribution: 0,
+  goal: 1_000_000,
+  updateHistory: [],
+  hasCompletedOnboarding: false,
+  triggeredMilestones: [],
+};
+
+const PortfolioContext = createContext<PortfolioContextValue | null>(null);
+
+export function PortfolioProvider({ children }: { children: React.ReactNode }) {
+  const [data, setData] = useState<PortfolioData>(DEFAULT_DATA);
+  const [isLoading, setIsLoading] = useState(true);
+  const [pendingMilestone, setPendingMilestone] = useState<PendingMilestone | null>(null);
+  const [pendingHype, setPendingHype] = useState<string | null>(null);
+  const prevNetWorth = useRef(0);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as PortfolioData;
+          setData(parsed);
+          prevNetWorth.current = parsed.silos.reduce((s, silo) => s + silo.currentValue, 0);
+        } catch {
+          setData(DEFAULT_DATA);
+        }
+      }
+      setIsLoading(false);
+    });
+  }, []);
+
+  const persist = useCallback((next: PortfolioData) => {
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  }, []);
+
+  const checkMilestones = useCallback(
+    (nextData: PortfolioData, newNetWorth: number) => {
+      const pct = (newNetWorth / nextData.goal) * 100;
+      for (const m of MILESTONES) {
+        if (!nextData.triggeredMilestones.includes(m.id) && pct >= m.percentage) {
+          return m;
+        }
+      }
+      return null;
+    },
+    []
+  );
+
+  const mutate = useCallback(
+    (updater: (prev: PortfolioData) => PortfolioData, opts?: { checkHype?: boolean; prevValue?: number; siloId?: string }) => {
+      setData((prev) => {
+        const next = updater(prev);
+        const newNetWorth = next.silos.reduce((s, silo) => s + silo.currentValue, 0);
+
+        if (opts?.checkHype && opts.prevValue !== undefined) {
+          const delta = newNetWorth - prevNetWorth.current;
+          if (delta > 0) {
+            const eta = computeEta(next.silos, next.monthlyContribution, next.goal);
+            const msg = getHypeMessage(delta, eta, newNetWorth);
+            setTimeout(() => setPendingHype(msg), 400);
+          }
+        }
+
+        const hitMilestone = checkMilestones(next, newNetWorth);
+        if (hitMilestone) {
+          const withMilestone: PortfolioData = {
+            ...next,
+            triggeredMilestones: [...next.triggeredMilestones, hitMilestone.id],
+          };
+          setTimeout(() => setPendingMilestone(hitMilestone), 800);
+          prevNetWorth.current = newNetWorth;
+          persist(withMilestone);
+          return withMilestone;
+        }
+
+        prevNetWorth.current = newNetWorth;
+        persist(next);
+        return next;
+      });
+    },
+    [checkMilestones, persist]
+  );
+
+  const addSilo = useCallback(
+    (silo: Omit<Silo, "id" | "createdAt">) => {
+      mutate((prev) => ({
+        ...prev,
+        silos: [
+          ...prev.silos,
+          { ...silo, id: generateId(), createdAt: new Date().toISOString() },
+        ],
+      }));
+    },
+    [mutate]
+  );
+
+  const updateSilo = useCallback(
+    (id: string, updates: Partial<Omit<Silo, "id" | "createdAt">>) => {
+      mutate((prev) => ({
+        ...prev,
+        silos: prev.silos.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      }));
+    },
+    [mutate]
+  );
+
+  const updateSiloValue = useCallback(
+    (id: string, newValue: number) => {
+      mutate(
+        (prev) => {
+          const silo = prev.silos.find((s) => s.id === id);
+          if (!silo) return prev;
+          const delta = newValue - silo.currentValue;
+          const update: SiloUpdate = {
+            id: generateId(),
+            siloId: id,
+            siloName: silo.name,
+            previousValue: silo.currentValue,
+            newValue,
+            delta,
+            timestamp: new Date().toISOString(),
+          };
+          return {
+            ...prev,
+            silos: prev.silos.map((s) =>
+              s.id === id ? { ...s, currentValue: newValue } : s
+            ),
+            updateHistory: [update, ...prev.updateHistory],
+          };
+        },
+        { checkHype: true }
+      );
+    },
+    [mutate]
+  );
+
+  const deleteSilo = useCallback(
+    (id: string) => {
+      mutate((prev) => ({
+        ...prev,
+        silos: prev.silos.filter((s) => s.id !== id),
+      }));
+    },
+    [mutate]
+  );
+
+  const setMonthlyContribution = useCallback(
+    (amount: number) => {
+      mutate((prev) => ({ ...prev, monthlyContribution: amount }));
+    },
+    [mutate]
+  );
+
+  const setGoal = useCallback(
+    (amount: number) => {
+      mutate((prev) => ({ ...prev, goal: amount }));
+    },
+    [mutate]
+  );
+
+  const completeOnboarding = useCallback(() => {
+    mutate((prev) => ({ ...prev, hasCompletedOnboarding: true }));
+  }, [mutate]);
+
+  const dismissMilestone = useCallback(() => setPendingMilestone(null), []);
+  const dismissHype = useCallback(() => setPendingHype(null), []);
+
+  const netWorth = data.silos.reduce((s, silo) => s + silo.currentValue, 0);
+  const percentToGoal = data.goal > 0 ? Math.min((netWorth / data.goal) * 100, 100) : 0;
+  const remainingToGoal = Math.max(data.goal - netWorth, 0);
+  const eta = computeEta(data.silos, data.monthlyContribution, data.goal);
+
+  return (
+    <PortfolioContext.Provider
+      value={{
+        ...data,
+        isLoading,
+        netWorth,
+        percentToGoal,
+        remainingToGoal,
+        eta,
+        pendingMilestone,
+        pendingHype,
+        addSilo,
+        updateSilo,
+        updateSiloValue,
+        deleteSilo,
+        setMonthlyContribution,
+        setGoal,
+        completeOnboarding,
+        dismissMilestone,
+        dismissHype,
+      }}
+    >
+      {children}
+    </PortfolioContext.Provider>
+  );
+}
+
+export function usePortfolio(): PortfolioContextValue {
+  const ctx = useContext(PortfolioContext);
+  if (!ctx) throw new Error("usePortfolio must be used inside PortfolioProvider");
+  return ctx;
+}
